@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Plaster&display=swap');
+
+@import url('https://fonts.googleapis.com/css2?family=Kanit:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+
+* {
+    padding: 0;
+    margin: 0;
+
+    box-sizing: border-box;
+}
+
+:root {
+    --yellow: #ffee5e;
+    --blue: #1309c6;
+    --red: #ff2433;
+
+    /* --yellow-rich: #ffaa22; */
+
+    --yellow-hover: #ff9b10;
+    --blue-hover: #230051;
+}
+
+body {
+    background-color: var(--red);
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    h1 {
+        color: var(--yellow);
+        background-color: var(--blue);
+        font-family: "Plaster", system-ui;
+        font-size: 9rem;
+        margin: 1rem;
+
+        border-radius: 2rem;
+        border: solid 0.5rem var(--blue);
+    }
+
+    h2 {
+        color: var(--yellow);
+        background-color: var(--blue);
+        font-family: "Plaster", system-ui;
+        font-size: 4.5rem;
+        margin: 1rem;
+
+        border-radius: 1rem;
+        border: solid 0.5rem var(--blue);
+    }
+
+    nav,
+    p,
+    a,
+    button {
+        color: var(--yellow);
+        background-color: var(--blue);
+        font-family: "Kanit", sans-serif;
+        font-size: 1rem;
+        margin: 1rem;
+
+        border-radius: .5rem;
+    }
+
+    p {
+        font-weight: 400;
+    }
+
+    a:hover,
+    button:hover {
+        color: var(--yellow-hover);
+        background-color: var(--blue-hover);
+    }
+
+    a,
+    button {
+        cursor: pointer;
+        text-decoration: none;
+        font-weight: 800;
+    }
+
+    li {
+        list-style: none;
+    }
+}
