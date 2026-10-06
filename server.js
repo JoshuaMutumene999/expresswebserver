@@ -4,6 +4,7 @@ const express = require('express');
 const session = require('express-session');
 const rateLimit = require('express-rate-limit');
 const { Filter } = require('bad-words')
+const crypto = require('crypto');
 
 let MAINTENANCE_MODE = false;
 
@@ -25,6 +26,18 @@ const GUESTBOOK_FILE = path.join(__dirname, 'guestbook.json');
 function getGuestbookMessages() {
     if (!fs.existsSync(GUESTBOOK_FILE)) return [];
     return JSON.parse(fs.readFileSync(GUESTBOOK_FILE, 'utf8'));
+}
+function validateEntry(name, msg) {
+    if (typeof name !== 'string' || typeof msg !== 'string') {
+        return 'Name and message must be text.';
+    }
+    if (name.trim().length < 1 || name.trim().length > 40) {
+        return 'Name must be 1 to 40 characters.';
+    }
+    if (msg.trim().length < 1 || msg.trim().length > 280) {
+        return 'Message must be 1 to 280 characters.';
+    }
+    return null;
 }
 
 let visitorCount = 0;
@@ -150,7 +163,7 @@ app.get('/api/guestbook', requireAuth, (req, res) => {
 
 app.post('/api/guestbook', requireAuth, (req, res) => {
     console.log('New guestbook message:');
-    const { msg } = req.body;
+    const { name, msg } = req.body;
     if (!msg) {
         return res.status(400).json({ error: 'Message is required' });
     }
@@ -162,23 +175,28 @@ app.post('/api/guestbook', requireAuth, (req, res) => {
     if (filter.isProfane(compactInput)) {
         return res.status(400).json({ error: 'Profanity is a net negative!' });
     }
-
-    messages.push(cleanedInput);
+    const entry = {
+        id: crypto.randomUUID(),
+        name: name,
+        msg: compactInput,
+        createdAt: new Date().toISOString()
+    };
+    messages.push(entry);
 
     fs.writeFileSync(GUESTBOOK_FILE, JSON.stringify(messages.slice(-50), null, 2));
     res.json({ success: true });
 });
 
-app.post('/api/guestbook', requireAuth, (req, res) => {
-    const { msg } = req.body;
-    if (!msg) {
-        return res.status(400).json({ error: 'Message is required' });
-    }
-    const messages = getGuestbookMessages();
-    messages.push(msg);
-    fs.writeFileSync(GUESTBOOK_FILE, JSON.stringify(messages.slice(-50), null, 2));
-    res.json({ success: true });
-});
+// app.post('/api/guestbook', requireAuth, (req, res) => {
+//     const { msg } = req.body;
+//     if (!msg) {
+//         return res.status(400).json({ error: 'Message is required' });
+//     }
+//     const messages = getGuestbookMessages();
+//     messages.push(msg);
+//     fs.writeFileSync(GUESTBOOK_FILE, JSON.stringify(messages.slice(-50), null, 2));
+//     res.json({ success: true });
+// });
 
 app.get('/', (req, res) => {
     visitorCount++;
@@ -200,5 +218,34 @@ app.get('/', (req, res) => {
 // `extensions: ['html']` lets /projects find projects.html without the extension
 // ==========================================
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
+
+// 404 HANDLER - runs only if no route or static file answered
+app.use((req, res) => {
+    if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'Not found' });
+    }
+    res.status(404).sendFile(path.join(PUBLIC_DIR, '404.html'));
+});
+
+// ERROR HANDLER - the 4 parameters tell Express this handles errors
+app.use((err, req, res, next) => {
+    // Full details go to YOU, in the console and the log file
+    const time = new Date().toISOString();
+    console.error(`[${time}] ERROR ${req.method} ${req.path}`, err);
+    fs.appendFile(LOG_FILE, `[${time}] ERROR ${req.method} ${req.path}: ${err.message}\n`, () => { });
+
+    // If a response already started sending, let Express finish up
+    if (res.headersSent) return next(err);
+
+    // Errors with a status under 500 are the user's fault and safe to explain.
+    // Anything else is our fault, so hide the details.
+    const status = err.status || 500;
+    const message = status < 500 ? err.message : 'Something went wrong on our end.';
+
+    if (req.path.startsWith('/api/')) {
+        return res.status(status).json({ error: message });
+    }
+    res.status(status).send('<h1>Something went wrong</h1><p>Please try again later.</p><a href="/">Back to home</a>');
+});
 
 app.listen(PORT, () => console.log(`Server live on http://localhost:${PORT}`));

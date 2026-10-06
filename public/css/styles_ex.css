@@ -1,0 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=BBH+Bogle&display=swap');
+
+h2 {
+    /* color: var(--yellow);
+     background-color: var(--blue); */
+    font-family: "BBH Bogle", sans-serif;
+    font-weight: 400;
+    margin: 1rem;
+    /* border: solid 0.5rem var(--blue); */
+}
+
+h3 {
+    font-family: "BBH Bogle", sans-serif;
+    font-weight: 400;
+    margin: 1rem;
+}
