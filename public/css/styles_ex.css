@@ -1,16 +1,58 @@
 @import url('https://fonts.googleapis.com/css2?family=BBH+Bogle&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Mr+De+Haviland&display=swap');
 
-h2 {
-    /* color: var(--yellow);
-     background-color: var(--blue); */
-    font-family: "BBH Bogle", sans-serif;
-    font-weight: 400;
-    margin: 1rem;
-    /* border: solid 0.5rem var(--blue); */
+:root {
+    --yellow: #ffd100;
+    --blue: #001689;
+    --red: #db0032;
+
+    --white: #ffffff;
+
+    /* --yellow-hover: #ff9b10;
+    --blue-hover: #107cb5; */
 }
 
-h3 {
-    font-family: "BBH Bogle", sans-serif;
-    font-weight: 400;
-    margin: 1rem;
+body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+
+    #status {
+        font-family: "Mr De Haviland", cursive;
+        font-weight: 400;
+        font-style: normal;
+
+        font-size: 2.5rem;
+        line-height: 1.2;
+
+        text-transform: none;
+    }
+
+    h2,
+    nav,
+    a,
+    button {
+        /* color: var(--yellow);
+         background-color: var(--blue); */
+        font-family: "BBH Bogle", sans-serif;
+        font-weight: 400;
+        font-style: normal;
+        margin: 1rem;
+        /* border: solid 0.5rem var(--blue); */
+
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    nav {
+        background-color: var(--blue);
+        color: var(--blue);
+        max-width: fit-content;
+
+        a {
+            color: var(--white);
+        }
+    }
 }

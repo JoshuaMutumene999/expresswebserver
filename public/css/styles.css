@@ -14,10 +14,12 @@
     --blue: #1e0ec8;
     --red: #ff1726;
 
-    /* --yellow-rich: #ffaa22; */
-
     --yellow-hover: #ff9b10;
     --blue-hover: #230051;
+}
+
+img {
+    max-width: 100%;
 }
 
 body {

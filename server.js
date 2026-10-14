@@ -5,6 +5,7 @@ const session = require('express-session');
 const rateLimit = require('express-rate-limit');
 const { Filter } = require('bad-words')
 const crypto = require('crypto');
+const helmet = require('helmet');
 
 let MAINTENANCE_MODE = false;
 
@@ -14,9 +15,32 @@ const path = require('path');
 const filter = new Filter();
 const app = express();
 
+const apodCache = new Map();
+const TODAY_MAX_AGE = 60 * 60 * 1000; // 1 hour in milliseconds
+const MAX_CACHE_SIZE = 100;
+
 // Trust the X-Forwarded-For header set by hosts like Render, so the rate
 // limiter sees each visitor's real IP instead of the proxy's
 app.set('trust proxy', 1);
+
+// app.use(helmet());
+
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            'img-src': ["'self'", 'data:', 'https://assets.science.nasa.gov']
+        }
+    }
+}));
+
+// app.use(helmet({
+//     contentSecurityPolicy: {
+//         directives: {
+//             'img-src': ["'self'", 'data:', 'https://images.example.com'],
+//             'script-src': ["'self'", 'https://cdn.jsdelivr.net']
+//         }
+//     }
+// }));
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -47,6 +71,32 @@ if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 128 * 128) {
     const recentLines = fs.readFileSync(LOG_FILE, 'utf8').split('\n').slice(-10);
     fs.writeFileSync(LOG_FILE, recentLines.join('\n'));
 }
+// Returns an error message, or null if the date is OK
+function validateApodDate(date) {
+    if (date === undefined) return null; // no date means today
+
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return 'Date must look like YYYY-MM-DD.';
+    }
+
+    // new Date() quietly rolls Feb 30 over to Mar 2, so convert it
+    // back to text and check that it did not change
+    const parsed = new Date(date + 'T00:00:00Z');
+    if (isNaN(parsed) || parsed.toISOString().slice(0, 10) !== date) {
+        return 'That is not a real date.';
+    }
+
+    if (date < '1995-06-16') {
+        return 'The first picture is from 1995-06-16.';
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (date > today) {
+        return 'That date is in the future.';
+    }
+
+    return null;
+}
 
 // ==========================================
 // MIDDLEWARE SETUP
@@ -68,11 +118,17 @@ app.use((req, res, next) => {
     next();
 });
 
+const spaceLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    limit: 10,           // 10 lookups per minute, per visitor
+    message: { error: 'Too many space lookups. Please wait a minute.' }
+});
+
 // Rate limiter - blocks an IP with a 429 response if it sends too many
 // requests within the time window
 const limiter = rateLimit({
-    windowMs: 10 * 1000, // 10 second window
-    limit: 100,          // max requests per window, per IP
+    windowMs: 10 * 100, // 10 second window
+    limit: 1000,          // max requests per window, per IP
     message: '<h1>429 Too Many Requests</h1><p>Please wait 10 seconds.</p>'
 });
 app.use(limiter);
@@ -112,7 +168,10 @@ app.get('/api/hello', (req, res) => {
 });
 
 // Exposes the visitor count as JSON, e.g. for a frontend script to display
+
+// `no-store` means "never save this, always ask the server." Headers do not just describe the response; they tell the browser how to behave.Hold on to that idea for the rest of this lesson.
 app.get('/api/stats', (req, res) => {
+    res.set('Cache-Control', 'no-store');
     res.json({ visitorCount });
 });
 
@@ -187,35 +246,98 @@ app.post('/api/guestbook', requireAuth, (req, res) => {
     res.json({ success: true });
 });
 
-// app.post('/api/guestbook', requireAuth, (req, res) => {
-//     const { msg } = req.body;
-//     if (!msg) {
-//         return res.status(400).json({ error: 'Message is required' });
-//     }
-//     const messages = getGuestbookMessages();
-//     messages.push(msg);
-//     fs.writeFileSync(GUESTBOOK_FILE, JSON.stringify(messages.slice(-50), null, 2));
-//     res.json({ success: true });
-// });
-
 app.get('/', (req, res) => {
     visitorCount++;
     console.log(`Visit #${visitorCount}: someone viewed the landing page`);
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// app.get('/your-route-here', (req, res) => {
-//
-// });
+app.get('/api/headers-demo', (req, res) => {
+    res.set('X-Student-Name', 'Joshua Mutumene');
+    res.json({
+        browser: req.get('User-Agent'),
+        languages: req.get('Accept-Language'),
+        allRequestHeaders: req.headers
+    });
+});
 
-// app.post('/your-route-here', (req, res) => {
-//
-// });
+app.get('/api/space', spaceLimiter, async (req, res) => {
+    const { date } = req.query;
 
-// ==========================================
-// STATIC FILES
-// Serves everything in /public (put this AFTER your routes)
-// `extensions: ['html']` lets /projects find projects.html without the extension
+    // Validation goes here in Part 4
+    const dateError = validateApodDate(date);
+    if (dateError) {
+        return res.status(400).json({ error: dateError });
+    }
+
+    const cacheKey = date || 'today';
+    const cached = apodCache.get(cacheKey);
+    const isFresh = cacheKey !== 'today' || Date.now() - cached?.savedAt < TODAY_MAX_AGE;
+
+    if (cached && isFresh) {
+        console.log('Cache hit:', cacheKey);
+        return res.json(cached.data);
+    }
+
+    if (!process.env.NASA_API_KEY) {
+        throw new Error('NASA_API_KEY is missing from .env');
+    }
+
+    // NASA has one address for the latest pictures, and another for one day.
+    // The one-day address uses the date as YYMMDD: 2025-07-04 becomes 250704
+    let address = 'https://science.nasa.gov/wp-json/wp/v2/apod-basic/';
+    if (date) {
+        const shortDate = date.slice(2).replaceAll('-', '');
+        address = address + shortDate;
+    }
+
+    // Add the secret key on the server
+    const nasaUrl = new URL(address);
+    nasaUrl.searchParams.set('api_key', process.env.NASA_API_KEY);
+
+    let nasaResponse;
+    try {
+        // Give up if NASA takes longer than 8 seconds
+        console.log('Asking NASA for', cacheKey);
+        nasaResponse = await fetch(nasaUrl, { signal: AbortSignal.timeout(8000) });
+    } catch (err) {
+        return res.status(502).json({ error: 'Could not reach NASA. Try again later.' });
+    }
+
+    if (nasaResponse.status === 404) {
+        return res.status(404).json({ error: 'NASA has no picture for that date.' });
+    }
+    if (!nasaResponse.ok) {
+        console.error('NASA error:', nasaResponse.status);
+        return res.status(502).json({ error: 'NASA could not send a picture right now.' });
+    }
+
+    const data = await nasaResponse.json();
+
+    // With a date, NASA sends one picture. Without one, it sends a list,
+    // and the first item is the newest.
+    const picture = Array.isArray(data) ? data[0] : data;
+
+    const result = {
+        title: picture.title,
+        date: picture.date,
+        imageUrl: picture.hdurl,
+        description: picture.alt,
+        nasaPage: picture.permalink
+    };
+
+    apodCache.set(cacheKey, { data: result, savedAt: Date.now() });
+
+    // Too many entries? Remove the oldest one (a Map remembers insertion order)
+    if (apodCache.size > MAX_CACHE_SIZE) {
+        const oldestKey = apodCache.keys().next().value;
+        apodCache.delete(oldestKey);
+    }
+
+    res.json(result);
+});
+
+
 // ==========================================
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
