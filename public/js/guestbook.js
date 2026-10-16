@@ -66,3 +66,4 @@ document.querySelector('#guestbook-form').addEventListener('submit', async (e) =
     e.target.reset();
     loadMessages();
 });
+loadMessages();

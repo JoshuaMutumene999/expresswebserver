@@ -19,7 +19,7 @@ body {
     align-items: center;
     min-height: 100vh;
 
-    #status {
+    h2 {
         font-family: "Mr De Haviland", cursive;
         font-weight: 400;
         font-style: normal;
@@ -30,7 +30,6 @@ body {
         text-transform: none;
     }
 
-    h2,
     nav,
     a,
     button {
