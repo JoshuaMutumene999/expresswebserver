@@ -11,6 +11,7 @@ for (const name of REQUIRED_ENV) {
     }
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
 const db = require('./db');
 const express = require('express');
 const session = require('express-session');
@@ -145,6 +146,12 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    message: { error: 'Too many login attempts. Please wait 15 minutes and try again.' }
+});
+
 app.use((req, res, next) => {
     if (MAINTENANCE_MODE)
         return res.status(503).send('<h1>503 Service Unavailable</h1><p>The server is currently undergoing maintenance. Please try again later.</p>');
@@ -153,19 +160,47 @@ app.use((req, res, next) => {
 
 // Tracks logged-in users via a signed cookie - the browser sends it back
 // automatically, no frontend code needed. Requires SESSION_SECRET in .env.
+// app.use(session({
+//     secret: process.env.SESSION_SECRET,
+//     resave: false,
+//     saveUninitialized: false,
+//     cookie: { maxAge: 15 * 60 * 1000 } // session expires after 15 minutes
+// }));
+
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 15 * 60 * 1000 } // session expires after 15 minutes
+    cookie: {
+        maxAge: 15 * 60 * 1000,   // 15 minutes
+        httpOnly: true,           // page JavaScript cannot read it
+        sameSite: 'lax',          // other sites cannot send it with their forms
+        secure: isProduction      // only sent over HTTPS on the live site
+    }
 }));
 
 // Route guard - use this on any route that should require login.
 // Example: app.get('/dashboard', requireAuth, (req, res) => { ... });
+// function requireAuth(req, res, next) {
+//     if (!req.session.isAuthenticated) {
+//         return res.status(301).redirect('/');
+//         // return res.status(401).json({ error: 'Please log in first' });
+//     }
+//     next();
+// }
+
+// For API routes: JavaScript gets a clear JSON error
 function requireAuth(req, res, next) {
     if (!req.session.isAuthenticated) {
-        return res.status(301).redirect('/');
-        // return res.status(401).json({ error: 'Please log in first' });
+        return res.status(401).json({ error: 'Please log in first.' });
+    }
+    next();
+}
+
+// For pages: people get sent to the login page
+function requireLoginPage(req, res, next) {
+    if (!req.session.isAuthenticated) {
+        return res.redirect('/');
     }
     next();
 }
@@ -188,7 +223,7 @@ app.get('/api/stats', (req, res) => {
 });
 
 // Checks the password against .env; marks the session authenticated if correct
-app.post('/login', (req, res) => {
+app.post('/login', authLimiter, (req, res) => {
     console.log('Login attempt:');
     const { password, rememberMe } = req.body;
     if (password === process.env.APP_PASSWORD) {
@@ -209,12 +244,12 @@ app.post('/logout', (req, res) => {
 });
 
 // Example protected route - try visiting this without logging in first
-app.get('/dashboard', requireAuth, (req, res) => {
+app.get('/dashboard', requireLoginPage, (req, res) => {
     res.send('<h1>Dashboard</h1><p>You are logged in!</p>');
 });
 
 // Example: run code (logging, a counter, etc.) before serving a page from /public
-app.get('/projects', (req, res) => {
+app.get('/projects', requireLoginPage, (req, res) => {
     visitorCount++;
     console.log(`Visit #${visitorCount}: someone viewed the projects page`);
     res.sendFile(path.join(PUBLIC_DIR, 'projects.html'));
@@ -224,7 +259,7 @@ app.get('/api/whoami', (req, res) => {
     res.json({ loggedIn: req.session.isAuthenticated });
 });
 
-app.get('/guestbook', requireAuth, (req, res) => {
+app.get('/guestbook', requireLoginPage, (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'guestbook.html'));
 });
 
@@ -312,14 +347,16 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-app.get('/api/headers-demo', (req, res) => {
-    res.set('X-Student-Name', 'Joshua Mutumene');
-    res.json({
-        browser: req.get('User-Agent'),
-        languages: req.get('Accept-Language'),
-        allRequestHeaders: req.headers
+if (!isProduction) {
+    app.get('/api/headers-demo', (req, res) => {
+        res.set('X-Student-Name', 'Joshua Mutumene');
+        res.json({
+            browser: req.get('User-Agent'),
+            languages: req.get('Accept-Language'),
+            allRequestHeaders: req.headers
+        });
     });
-});
+}
 
 app.get('/api/space', spaceLimiter, async (req, res) => {
     const { date } = req.query;
