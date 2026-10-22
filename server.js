@@ -1,9 +1,7 @@
 require('dotenv').config();
 
 // Stop immediately if any required setting is missing
-const REQUIRED_ENV = ['SESSION_SECRET',
-    'APP_PASSWORD',
-    'NASA_API_KEY'];
+const REQUIRED_ENV = ['SESSION_SECRET', 'NASA_API_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD'];
 for (const name of REQUIRED_ENV) {
     if (!process.env[name]) {
         console.error(`Missing ${name} in .env (or in Render's Environment settings)`);
@@ -11,6 +9,7 @@ for (const name of REQUIRED_ENV) {
     }
 }
 
+const bcrypt = require('bcryptjs');
 const isProduction = process.env.NODE_ENV === 'production';
 const db = require('./db');
 const express = require('express');
@@ -77,7 +76,37 @@ function validateEntry(name, msg) {
     return null;
 }
 
+// Returns an error message, or null if the username and password are OK
+function validateCredentials(username, password) {
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        return 'Username and password must be text.';
+    }
+    if (!/^[a-z0-9_]{3,20}$/.test(username.trim().toLowerCase())) {
+        return 'Username must be 3 to 20 letters, numbers or underscores.';
+    }
+    if (password.length < 8 || password.length > 72) {
+        return 'Password must be 8 to 72 characters.';
+    }
+    return null;
+}
+
 let visitorCount = 0;
+
+// Starts a brand-new session for this user
+function startSession(req, user, rememberMe) {
+    return new Promise((resolve, reject) => {
+        req.session.regenerate((err) => {
+            if (err) return reject(err);
+            req.session.userId = user.id;
+            req.session.username = user.username;
+            req.session.role = user.role;
+            if (rememberMe) {
+                req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+            }
+            resolve();
+        });
+    });
+}
 
 // Trim the log file if it's gotten too big
 if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 128 * 128) {
@@ -191,7 +220,7 @@ app.use(session({
 
 // For API routes: JavaScript gets a clear JSON error
 function requireAuth(req, res, next) {
-    if (!req.session.isAuthenticated) {
+    if (!req.session.userId) {
         return res.status(401).json({ error: 'Please log in first.' });
     }
     next();
@@ -199,7 +228,15 @@ function requireAuth(req, res, next) {
 
 // For pages: people get sent to the login page
 function requireLoginPage(req, res, next) {
-    if (!req.session.isAuthenticated) {
+    if (!req.session.userId) {
+        return res.redirect('/');
+    }
+    next();
+}
+
+// For admin-only pages: everyone else goes back to the home page
+function requireAdminPage(req, res, next) {
+    if (req.session.role !== 'admin') {
         return res.redirect('/');
     }
     next();
@@ -209,6 +246,25 @@ function requireLoginPage(req, res, next) {
 // ROUTES
 // Fill these in! Example routes are shown below.
 // ==========================================
+
+app.post('/register', authLimiter, async (req, res) => {
+    const { username, password } = req.body;
+    const error = validateCredentials(username, password);
+    if (error) {
+        return res.status(400).json({ error });
+    }
+
+    const cleanName = username.trim().toLowerCase();
+    if (await db.getUserByUsername(cleanName)) {
+        return res.status(409).json({ error: 'That username is already taken.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await db.addUser({ username: cleanName, passwordHash });
+
+    await startSession(req, user); // new users are logged in right away
+    res.status(201).json({ username: user.username });
+});
 
 app.get('/api/hello', (req, res) => {
     res.json({ message: 'Hello, world!' });
@@ -223,17 +279,35 @@ app.get('/api/stats', (req, res) => {
 });
 
 // Checks the password against .env; marks the session authenticated if correct
-app.post('/login', authLimiter, (req, res) => {
-    console.log('Login attempt:');
-    const { password, rememberMe } = req.body;
-    if (password === process.env.APP_PASSWORD) {
-        req.session.isAuthenticated = true;
-        if (rememberMe) {
-            req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-        }
-        return res.status(200).json({ success: true });
+// app.post('/login', authLimiter, (req, res) => {
+//     console.log('Login attempt:');
+//     const { password, rememberMe } = req.body;
+//     if (password === process.env.APP_PASSWORD) {
+//         req.session.isAuthenticated = true;
+//         if (rememberMe) {
+//             req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+//         }
+//         return res.status(200).json({ success: true });
+//     }
+//     return res.status(401).json({ success: false, error: 'Incorrect password' });
+// });
+
+app.post('/login', authLimiter, async (req, res) => {
+    const { username, password, rememberMe } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        return res.status(400).json({ error: 'Username and password are required.' });
     }
-    return res.status(401).json({ success: false, error: 'Incorrect password' });
+
+    const user = await db.getUserByUsername(username.trim());
+    const passwordOk = user && await bcrypt.compare(password, user.passwordHash);
+
+    if (!passwordOk) {
+        // Same message whether the username or the password was wrong
+        return res.status(401).json({ error: 'Incorrect username or password.' });
+    }
+
+    await startSession(req, user, rememberMe);
+    res.json({ success: true, username: user.username });
 });
 
 // Logout - destroys the session so req.session.isAuthenticated is gone
@@ -244,7 +318,7 @@ app.post('/logout', (req, res) => {
 });
 
 // Example protected route - try visiting this without logging in first
-app.get('/dashboard', requireLoginPage, (req, res) => {
+app.get('/dashboard', requireAdminPage, (req, res) => {
     res.send('<h1>Dashboard</h1><p>You are logged in!</p>');
 });
 
@@ -256,7 +330,15 @@ app.get('/projects', requireLoginPage, (req, res) => {
 });
 
 app.get('/api/whoami', (req, res) => {
-    res.json({ loggedIn: req.session.isAuthenticated });
+    if (!req.session.userId) {
+        return res.json({ loggedIn: false });
+    }
+    res.json({
+        loggedIn: true,
+        userId: req.session.userId,
+        username: req.session.username,
+        role: req.session.role
+    });
 });
 
 app.get('/guestbook', requireLoginPage, (req, res) => {
@@ -357,6 +439,10 @@ if (!isProduction) {
         });
     });
 }
+
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
 
 app.get('/api/space', spaceLimiter, async (req, res) => {
     const { date } = req.query;
@@ -467,4 +553,16 @@ app.use((err, req, res, next) => {
     res.status(status).send('<h1>Something went wrong</h1><p>Please try again later.</p><a href="/">Back to home</a>');
 });
 
-app.listen(PORT, () => console.log(`Server live on http://localhost:${PORT}`));
+// Creates the admin account from .env if it doesn't exist yet
+async function ensureAdmin() {
+    const existing = await db.getUserByUsername(process.env.ADMIN_USERNAME);
+    if (existing) return;
+
+    const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
+    await db.addUser({ username: process.env.ADMIN_USERNAME, passwordHash, role: 'admin' });
+    console.log('Created admin account');
+}
+
+ensureAdmin().then(() => {
+    app.listen(PORT, () => console.log(`Server live on http://localhost:${PORT}`));
+});

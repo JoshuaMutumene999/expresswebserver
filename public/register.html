@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Express Server</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css"
+        integrity="sha512-Kc323vGBEqzTmouAECnVceyQqyqdsSiqLQISBL29aUW4U/M7pSPA/gEUZQqv1cwx4OnYxTxve5UMg5GT6L4JJg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+</head>
+
+<body>
+    <nav>
+        <a href="/">Home</a> |
+        <a href="/projects">Projects</a> |
+        <a href="/guestbook">Guestbook</a> |
+        <a href="/dashboard">Dashboard</a> |
+        <a href="/space">Space</a> |
+        <a href="/register">Register</a>
+    </nav>
+
+    <h2>Create an account</h2>
+
+    <form id="register-form">
+        <label for="username">Username</label>
+        <input id="username" autocomplete="username" minlength="3" maxlength="20" required />
+
+        <label for="password">Password (at least 8 characters)</label>
+        <input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required />
+
+        <label for="confirm">Confirm password</label>
+        <input id="confirm" type="password" autocomplete="new-password" required />
+
+        <button type="submit">Create account</button>
+    </form>
+    <p id="register-message" role="alert"></p>
+
+    <p>Already have an account? <a href="/">Log in</a></p>
+
+    <script src="/js/register.js"></script>
+
+</body>
+
+</html>

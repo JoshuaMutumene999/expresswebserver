@@ -5,15 +5,22 @@ const status = document.querySelector('#status');
 const loginSection = document.querySelector('#login-section');
 const logoutButton = document.querySelector('#logout-button');
 
+const username = document.querySelector('#username').value;
+
 async function checkAuthState() {
     try {
         const response = await fetch('/api/whoami');
         const data = await response.json();
 
         if (data.loggedIn) {
-            status.innerHTML = '<h2>Would you like to see your?</h2>';
-            loginSection.hidden = true;
-            logoutButton.hidden = false;
+            // status.innerHTML = '<h2>Would you like to see your?</h2>';
+            // loginSection.hidden = true;
+            // logoutButton.hidden = false;
+
+            status.textContent = '';
+            const heading = document.createElement('h1');
+            heading.textContent = `Welcome back, ${data.username}!`;
+            status.append(heading);
         } else {
             status.innerHTML = '<h1>Hello, hi!</h1>';
             loginSection.hidden = false;
@@ -35,7 +42,7 @@ loginForm.addEventListener('submit', async (event) => {
     const response = await fetch(loginForm.action, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, rememberMe })
+        body: JSON.stringify({ username, password, rememberMe })
     });
 
     const data = await response.json().catch(() => ({ success: false }));
