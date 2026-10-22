@@ -76,6 +76,8 @@ function validateEntry(name, msg) {
     return null;
 }
 
+let visitorCount = 0;
+
 // Returns an error message, or null if the username and password are OK
 function validateCredentials(username, password) {
     if (typeof username !== 'string' || typeof password !== 'string') {
@@ -89,8 +91,6 @@ function validateCredentials(username, password) {
     }
     return null;
 }
-
-let visitorCount = 0;
 
 // Starts a brand-new session for this user
 function startSession(req, user, rememberMe) {
