@@ -51,12 +51,14 @@ async function getEntryById(id) {
     return entries.find(entry => entry.id === id) || null;
 }
 
-async function addEntry({ name, msg }) {
+// To check who may change a message, each one must store its author's ID.
+async function addEntry({ name, msg, authorId }) {
     const entries = await readAll();
     const entry = {
         id: crypto.randomUUID(),
         name,
         msg,
+        authorId,
         createdAt: new Date().toISOString()
     };
     entries.push(entry);

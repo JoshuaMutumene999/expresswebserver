@@ -35,7 +35,6 @@ const MAX_CACHE_SIZE = 100;
 // limiter sees each visitor's real IP instead of the proxy's
 app.set('trust proxy', 1);
 
-// app.use(helmet());
 
 app.use(helmet({
     contentSecurityPolicy: {
@@ -45,24 +44,10 @@ app.use(helmet({
     }
 }));
 
-// app.use(helmet({
-//     contentSecurityPolicy: {
-//         directives: {
-//             'img-src': ["'self'", 'data:', 'https://images.example.com'],
-//             'script-src': ["'self'", 'https://cdn.jsdelivr.net']
-//         }
-//     }
-// }));
-
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const LOG_FILE = path.join(__dirname, 'server.log');
-// const GUESTBOOK_FILE = path.join(__dirname, 'guestbook.json');
 
-// function getGuestbookMessages() {
-//     if (!fs.existsSync(GUESTBOOK_FILE)) return [];
-//     return JSON.parse(fs.readFileSync(GUESTBOOK_FILE, 'utf8'));
-// }
 function validateEntry(name, msg) {
     if (typeof name !== 'string' || typeof msg !== 'string') {
         return 'Name and message must be text.';
@@ -140,6 +125,11 @@ function validateApodDate(date) {
     return null;
 }
 
+// This answers "may this person change this entry?"
+function canModify(req, entry) {
+    return entry.authorId === req.session.userId || req.session.role === 'admin';
+}
+
 // ==========================================
 // MIDDLEWARE SETUP
 // Each function below runs on every request, then calls next() to pass
@@ -208,16 +198,6 @@ app.use(session({
     }
 }));
 
-// Route guard - use this on any route that should require login.
-// Example: app.get('/dashboard', requireAuth, (req, res) => { ... });
-// function requireAuth(req, res, next) {
-//     if (!req.session.isAuthenticated) {
-//         return res.status(301).redirect('/');
-//         // return res.status(401).json({ error: 'Please log in first' });
-//     }
-//     next();
-// }
-
 // For API routes: JavaScript gets a clear JSON error
 function requireAuth(req, res, next) {
     if (!req.session.userId) {
@@ -279,19 +259,6 @@ app.get('/api/stats', (req, res) => {
 });
 
 // Checks the password against .env; marks the session authenticated if correct
-// app.post('/login', authLimiter, (req, res) => {
-//     console.log('Login attempt:');
-//     const { password, rememberMe } = req.body;
-//     if (password === process.env.APP_PASSWORD) {
-//         req.session.isAuthenticated = true;
-//         if (rememberMe) {
-//             req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-//         }
-//         return res.status(200).json({ success: true });
-//     }
-//     return res.status(401).json({ success: false, error: 'Incorrect password' });
-// });
-
 app.post('/login', authLimiter, async (req, res) => {
     const { username, password, rememberMe } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string') {
@@ -361,59 +328,76 @@ app.get('/api/guestbook/:id', requireAuth, async (req, res) => {
 });
 
 // DELETE
+// It now ** looks up the entry first **, because you cannot check who wrote something without finding it:
 app.delete('/api/guestbook/:id', requireAuth, async (req, res) => {
-    const deleted = await db.deleteEntry(req.params.id);
-    if (!deleted) {
+    const entry = await db.getEntryById(req.params.id);
+    if (!entry) {
         return res.status(404).json({ error: 'Entry not found.' });
     }
+    if (!canModify(req, entry)) {
+        return res.status(403).json({ error: 'You can only delete your own messages.' });
+    }
+
+    await db.deleteEntry(entry.id);
     res.status(204).end();
 });
 
-// UPDATE
+// UPDATE / PUT
+// Only the message can change; the author's name stays the same:
 app.put('/api/guestbook/:id', requireAuth, async (req, res) => {
-    const { name, msg } = req.body;
-    const error = validateEntry(name, msg);
+    const { msg } = req.body;
+    const entry = await db.getEntryById(req.params.id);
+    if (!entry) {
+        return res.status(404).json({ error: 'Entry not found.' });
+    }
+    if (!canModify(req, entry)) {
+        return res.status(403).json({ error: 'You can only edit your own messages.' });
+    }
+
+    const error = validateEntry(entry.name, msg);
     if (error) {
         return res.status(400).json({ error });
     }
 
-    const updated = await db.updateEntry(req.params.id, {
-        name: name.trim(),
-        msg: msg.trim()
-    });
-    if (!updated) {
-        return res.status(404).json({ error: 'Entry not found.' });
-    }
+    // Keep your bad-words check here too, if you have one
+
+    const updated = await db.updateEntry(entry.id, { name: entry.name, msg: msg.trim() });
     res.json(updated);
 });
 
 app.post('/api/guestbook', requireAuth, async (req, res) => {
-    const { name, msg } = req.body;
+    const { msg } = req.body;
+    const name = req.session.username;
+
     const error = validateEntry(name, msg);
     if (error) {
         return res.status(400).json({ error });
     }
 
-    if (filter.isProfane(msg)) {
-        return res.status(400).json({ error: 'Please keep your message friendly.' });
-    }
+    // Keep your bad-words check here, if you have one
 
-    // const cleanedInput = msg.replace(/\s+/g, ' ').trim();
-    // const compactInput = cleanedInput.replace(/\s/g, '');
-    // if (filter.isProfane(compactInput)) {
-    //     return res.status(400).json({ error: 'Profanity is a net negative!' });
-    // }
-    // const entry = {
-    //     id: crypto.randomUUID(),
-    //     name: name,
-    //     msg: compactInput,
-    //     createdAt: new Date().toISOString()
-    // };
-    // messages.push(entry);
-
-    const entry = await db.addEntry({ name: name.trim(), msg: msg.trim() });
+    const entry = await db.addEntry({
+        name,
+        msg: msg.trim(),
+        authorId: req.session.userId
+    });
     res.status(201).json(entry);
 });
+
+// app.post('/api/guestbook', requireAuth, async (req, res) => {
+//     const { name, msg } = req.body;
+//     const error = validateEntry(name, msg);
+//     if (error) {
+//         return res.status(400).json({ error });
+//     }
+
+//     if (filter.isProfane(msg)) {
+//         return res.status(400).json({ error: 'Please keep your message friendly.' });
+//     }
+
+//     const entry = await db.addEntry({ name: name.trim(), msg: msg.trim() });
+//     res.status(201).json(entry);
+// });
 
 app.get('/api/guestbook/:id', requireAuth, async (req, res) => {
     const entry = await db.getEntryById(req.params.id);

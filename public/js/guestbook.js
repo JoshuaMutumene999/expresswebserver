@@ -1,3 +1,6 @@
+let currentUser = null;
+// fetch('/api/guestbook/d28c149f-cf2b-44a8-b7bd-5ee873347eec', { method: 'DELETE' })
+//     .then(r => console.log(r.status));
 
 async function deleteEntry(id) {
     if (!confirm('Delete this message?')) return;
@@ -45,15 +48,19 @@ function startEdit(li, entry) {
     textarea.value = entry.msg; // .value is safe, like textContent
     textarea.maxLength = 280;
 
-    const saveButton = document.createElement('button');
-    saveButton.type = 'button';
-    saveButton.textContent = 'Save';
-    saveButton.addEventListener('click', () => saveEdit(entry, textarea.value));
+    const canEdit = entry.authorId === currentUser.userId || currentUser.role === 'admin';
+    if (canEdit) {
+        // ...your existing code that creates and appends the Edit and Delete buttons...
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.textContent = 'Save';
+        saveButton.addEventListener('click', () => saveEdit(entry, textarea.value));
 
-    const cancelButton = document.createElement('button');
-    cancelButton.type = 'button';
-    cancelButton.textContent = 'Cancel';
-    cancelButton.addEventListener('click', loadMessages);
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.textContent = 'Cancel';
+        cancelButton.addEventListener('click', loadMessages);
+    }
 
     li.append(textarea, saveButton, cancelButton);
     textarea.focus();
@@ -63,8 +70,14 @@ async function loadMessages() {
     const listError = document.querySelector('#list-error');
     listError.textContent = '';
     try {
+
         const response = await fetch('/api/guestbook');
         const entries = await response.json().catch(() => ({}));
+
+        if (!currentUser) {
+            currentUser = await (await fetch('/api/whoami')).json();
+        }
+
         // document.querySelector('#guestbook-list').innerHTML = messages.map(msg => `<li>${msg}</li>`).join('');
 
         if (!response.ok) {
@@ -79,7 +92,7 @@ async function loadMessages() {
         const list = document.querySelector('#guestbook-list');
         list.innerHTML = ''; // Clearing with an empty string is safe
 
-        //    Newest first: copy the array, then reverse the copy
+        // Newest first: copy the array, then reverse the copy
 
 
         [...entries].reverse().forEach(entry => {
@@ -101,20 +114,24 @@ async function loadMessages() {
                 li.append(edited);
             }
 
-            const editButton = document.createElement('button');
-            editButton.type = 'button';
-            editButton.textContent = 'Edit';
-            editButton.addEventListener('click', () => startEdit(li, entry));
+            const canEdit = entry.authorId === currentUser.userId || currentUser.role === 'admin';
+            if (canEdit) {
+                // ...your existing code that creates and appends the Edit and Delete buttons...
+                const editButton = document.createElement('button');
+                editButton.type = 'button';
+                editButton.textContent = 'Edit';
+                editButton.addEventListener('click', () => startEdit(li, entry));
 
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.textContent = 'Delete';
-            deleteButton.addEventListener('click', () => deleteEntry(entry.id));
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.textContent = 'Delete';
+                deleteButton.addEventListener('click', () => deleteEntry(entry.id));
 
-            li.append(editButton, deleteButton);
+                li.append(editButton, deleteButton);
 
+
+            }
             list.append(li);
-
         });
 
     } catch (err) {
@@ -130,10 +147,11 @@ document.querySelector('#guestbook-form').addEventListener('submit', async (e) =
         const response = await fetch('/api/guestbook', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.querySelector('#name').value,
-                msg: document.querySelector('#msg').value
-            })
+            // body: JSON.stringify({
+            //     name: document.querySelector('#name').value,
+            //     msg: document.querySelector('#msg').value
+            // })
+            body: JSON.stringify({ msg: document.querySelector('#msg').value })
         });
 
         if (!response.ok) {
