@@ -147,11 +147,8 @@ document.querySelector('#guestbook-form').addEventListener('submit', async (e) =
         const response = await fetch('/api/guestbook', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // body: JSON.stringify({
-            //     name: document.querySelector('#name').value,
-            //     msg: document.querySelector('#msg').value
-            // })
-            body: JSON.stringify({ msg: document.querySelector('#msg').value })
+
+            body: JSON.stringify({ msg: document.querySelector('#msg').value, website: document.querySelector('#website').value })
         });
 
         if (!response.ok) {

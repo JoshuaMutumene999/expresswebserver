@@ -85,4 +85,18 @@ body {
     li {
         list-style: none;
     }
+
+    /* Moves the honeypot off-screen, where no person will see it */
+    .hp-field {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+    }
+
+    /* **Why not `display: none` or `type="hidden" `?** Those are the first things smarter bots check for,
+        and they skip fields hidden that way. A field that is technically visible,
+        just off-screen,
+        fools more of them. */
 }
